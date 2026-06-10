@@ -134,7 +134,7 @@ let specials=[]; // golden pineapples, bombs, freeze clocks, double stars
 let bonusFruits=[]; // oranges and lemons — bonus points, no life penalty if missed
 let score=0, lives=MAX_LIVES, combo=0, round=0, frame=0, running=false, spawnTimer=0;
 let streak=0, streakMax=10, streakReady=false, gameOver=false;
-let roundTimer=0, roundBanner=null, graceTimer=0;
+let roundTimer=0, roundBanner=null, graceTimer=0, roundEnding=false;
 let freezeTimer=0, doubleTimer=0;
 let streakFillCount=0; // tracks total streak fills for alternating reward
 let roundMaxCombo=0, runMaxCombo=0;
@@ -277,7 +277,7 @@ function drawRoundSummary(){
   ctx.strokeStyle='rgba(255,200,40,0.7)'; ctx.lineWidth=2; ctx.stroke();
   ctx.textAlign='center';
   ctx.font='700 15px sans-serif'; ctx.fillStyle='#ffee44';
-  ctx.fillText(`Round ${roundSummary.round} Complete!`, cx, cy-52);
+  ctx.fillText(`Round ${roundSummary.round - 2} Complete!`, cx, cy-52);
   const rows=[
     [`\uD83C\uDF4D Punched`,`${roundSummary.punched}`],
     [`\uD83C\uDFAF Accuracy`,`${roundSummary.acc}%`],
@@ -689,11 +689,18 @@ function checkNewBest(){
 }
 
 // ── Round transition ──────────────────────────────────────────────────────────
+function beginRoundEnd(){
+  // Stop spawning new items and wait for screen to clear
+  if(roundEnding) return;
+  roundEnding=true;
+  spawnTimer=9999; // prevent any new spawns
+}
 function advanceRound(){
   showRoundSummary();
   roundMaxCombo=0; roundPunched=0; roundMissed=0; roundScore=0;
   round++;
   roundTimer=0;
+  roundEnding=false;
   graceTimer=GRACE_FRAMES;
   triggerRoundBanner(round);
 }
@@ -704,7 +711,16 @@ function update(){
   frame++;
   if(graceTimer>0) graceTimer--;
   roundTimer++;
-  if(roundTimer>=ROUND_DURATION*FPS && round<ROUNDS.length-1) advanceRound();
+  if(roundTimer>=ROUND_DURATION*FPS && round<ROUNDS.length-1 && !roundEnding){
+    beginRoundEnd();
+  }
+  // Once roundEnding: wait for all active items to clear, then advance
+  if(roundEnding){
+    const activeItems = pineapples.filter(p=>!p.punched).length
+      + specials.filter(s=>!s.hit&&!s.collected).length
+      + bonusFruits.filter(f=>!f.punched).length;
+    if(activeItems===0) advanceRound();
+  }
 
   if(freezeTimer>0) freezeTimer--;
   if(doubleTimer>0) doubleTimer--;
@@ -712,13 +728,13 @@ function update(){
 
   const rd=getRound();
   spawnTimer--;
-  if(graceTimer===0 && spawnTimer<=0 && pineapples.filter(p=>!p.punched).length<rd.maxOnScreen){
+  if(graceTimer===0 && !roundEnding && spawnTimer<=0 && pineapples.filter(p=>!p.punched).length<rd.maxOnScreen){
     for(let i=0;i<rd.multi;i++){if(pineapples.filter(p=>!p.punched).length<rd.maxOnScreen)addPineapple();}
     spawnTimer=rd.spawnInterval*(0.85+Math.random()*0.3);
   }
-  trySpawnHeart();
-  trySpawnSpecial();
-  trySpawnBonusFruit();
+  if(!roundEnding) trySpawnHeart();
+  if(!roundEnding) trySpawnSpecial();
+  if(!roundEnding) trySpawnBonusFruit();
 
   const speedMult=isFrozen()?0.4:1;
 
@@ -814,9 +830,10 @@ function draw(){
   ctx.fillStyle='rgba(255,220,60,0.9)';ctx.fillText(score,W/2,45);
   ctx.restore();
 
-  // Round
+  // Round display (player sees rounds 1–7, internally 3–9)
+  const displayRound = round - 2; // round 3 = display "1", round 9 = display "7"
   ctx.save();ctx.textAlign='right';ctx.font='500 11px sans-serif';
-  ctx.fillStyle='rgba(255,200,80,0.4)';ctx.fillText(`ROUND ${round+1}`,W-10,18);ctx.restore();
+  ctx.fillStyle='rgba(255,200,80,0.4)';ctx.fillText(`ROUND ${displayRound}`,W-10,18);ctx.restore();
 
   shockwaves.forEach(s=>{
     ctx.save();ctx.globalAlpha=s.life*0.5;ctx.strokeStyle='#ffe066';ctx.lineWidth=3;
@@ -987,15 +1004,15 @@ canvas.addEventListener('touchstart',e=>{if(!running)return;e.preventDefault();A
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 function startGame(){
   pineapples=[];particles=[];blenders=[];shockwaves=[];floatingPts=[];hearts=[];specials=[];bonusFruits=[];
-  score=0;lives=MAX_LIVES;combo=0;round=0;frame=0;spawnTimer=0;roundTimer=0;
-  streak=0;streakReady=false;gameOver=false;roundBanner=null;roundSummary=null;
+  score=0;lives=MAX_LIVES;combo=0;round=3;frame=0;spawnTimer=0;roundTimer=0;
+  streak=0;streakReady=false;gameOver=false;roundBanner=null;roundSummary=null;roundEnding=false;
   newBestShown=false;newBestBanner=null;
   freezeTimer=0;doubleTimer=0;streakFillCount=0;graceTimer=GRACE_FRAMES;
   roundMaxCombo=0;runMaxCombo=0;roundPunched=0;roundMissed=0;roundScore=0;
   scoreDisplay.textContent='0';livesDisplay.textContent=livesStr(MAX_LIVES);comboBanner.style.opacity='0';
   updateStreakBar();updatePowerupBars();
   overlay.style.display='none';running=true;
-  setTimeout(()=>triggerRoundBanner(0),300);
+  setTimeout(()=>triggerRoundBanner(round),300);
   requestAnimationFrame(gameLoop);
 }
 function gameLoop(){if(!running)return;update();draw();requestAnimationFrame(gameLoop);}
@@ -1003,7 +1020,7 @@ function endGame(){
   running=false;
   if(score>hiScore){hiScore=score;try{localStorage.setItem('pp_punchout_v3',hiScore);}catch(e){}}
   overlay.querySelector('h2').textContent='Game Over! \uD83C\uDF4D';
-  overlay.querySelector('p').textContent=`Round ${round+1} \u2022 ${score} pts \u2022 Best combo: x${runMaxCombo}`;
+  overlay.querySelector('p').textContent=`Round ${round-2} \u2022 ${score} pts \u2022 Best combo: x${runMaxCombo}`;
   startBtn.textContent='Play Again';bestTag.textContent=`Best: ${hiScore} pts`;
   overlay.style.display='flex';
 }
