@@ -101,6 +101,167 @@ const doublePtsWrap = document.getElementById('double-pts-wrap');
 const doublePtsFill = document.getElementById('double-pts-fill');
 
 const W = canvas.width, H = canvas.height;
+
+// ── Sound Engine (Web Audio API — no files needed) ────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new AudioCtx();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+
+// Generic helper: schedule an envelope + oscillator / noise burst
+function playTone(freq, type, vol, attack, hold, decay, startTime){
+  const t = startTime ?? audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(vol, t + attack);
+  gain.gain.setValueAtTime(vol, t + attack + hold);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + decay);
+  osc.start(t); osc.stop(t + attack + hold + decay + 0.05);
+}
+
+function playFreqSweep(freqStart, freqEnd, type, vol, duration, startTime){
+  const t = startTime ?? audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freqStart, t);
+  osc.frequency.exponentialRampToValueAtTime(freqEnd, t + duration);
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+  osc.start(t); osc.stop(t + duration + 0.05);
+}
+
+function playNoise(vol, duration, filterFreq, startTime){
+  const t = startTime ?? audioCtx.currentTime;
+  const bufLen = audioCtx.sampleRate * duration;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for(let i=0;i<bufLen;i++) data[i] = Math.random()*2-1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = filterFreq;
+  filter.Q.value = 1.2;
+  const gain = audioCtx.createGain();
+  src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+  src.start(t); src.stop(t + duration + 0.05);
+}
+
+// ── Named sound effects ───────────────────────────────────────────────────────
+const SFX = {
+  // Satisfying thwack for a pineapple punch
+  punch(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(280, 80, 'sawtooth', 0.28, 0.12, t);
+    playNoise(0.18, 0.09, 800, t);
+  },
+  // Higher pitched pop for golden pineapple
+  goldenPunch(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(520, 160, 'square', 0.22, 0.1, t);
+    playTone(880, 'sine', 0.12, 0.01, 0.04, 0.12, t);
+    playNoise(0.1, 0.07, 1400, t);
+  },
+  // Juicy squirt for orange / lemon
+  fruitPunch(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(360, 120, 'triangle', 0.2, 0.1, t);
+    playNoise(0.12, 0.08, 600, t);
+  },
+  // Big blender whirr + explosion when activated
+  blend(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    // rising whirr
+    playFreqSweep(80, 600, 'sawtooth', 0.25, 0.3, t);
+    playFreqSweep(120, 900, 'square', 0.15, 0.28, t + 0.02);
+    // crash
+    playNoise(0.5, 0.35, 400, t + 0.25);
+    playFreqSweep(200, 40, 'sawtooth', 0.3, 0.4, t + 0.28);
+  },
+  // Thud when blender is punched
+  blenderPunch(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(180, 55, 'sawtooth', 0.3, 0.15, t);
+    playNoise(0.25, 0.12, 300, t);
+  },
+  // Boom for bomb — deep low explosion
+  bombExplode(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(160, 28, 'sawtooth', 0.5, 0.45, t);
+    playNoise(0.6, 0.4, 200, t);
+    playNoise(0.3, 0.25, 80, t + 0.05);
+    // short high crack
+    playFreqSweep(900, 300, 'square', 0.2, 0.06, t);
+  },
+  // Soft icy tinkle for freeze clock
+  freeze(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    [880, 1100, 1320, 1760].forEach((f,i)=>{
+      playTone(f, 'sine', 0.14, 0.005, 0.03, 0.22, t + i*0.055);
+    });
+    playNoise(0.08, 0.3, 2000, t);
+  },
+  // Bright shimmer for double-star
+  doubleStar(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    [660, 880, 1100, 1320, 1760].forEach((f,i)=>{
+      playTone(f, 'sine', 0.16, 0.005, 0.04, 0.18, t + i*0.04);
+    });
+    playFreqSweep(400, 1600, 'square', 0.08, 0.18, t);
+  },
+  // Warm pulse for heart collect
+  heartCollect(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playTone(440, 'sine', 0.2,  0.01, 0.06, 0.18, t);
+    playTone(660, 'sine', 0.14, 0.01, 0.04, 0.16, t + 0.08);
+    playTone(880, 'sine', 0.1,  0.01, 0.03, 0.14, t + 0.14);
+  },
+  // Short miss thud when pineapple hits ground
+  miss(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    playFreqSweep(120, 50, 'sine', 0.22, 0.12, t);
+    playNoise(0.1, 0.1, 150, t);
+  },
+  // Combo fanfare — ascending blip sequence
+  combo(level){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    const freqs = [330,440,550,660,880,1100];
+    const f = freqs[Math.min(level-3, freqs.length-1)];
+    playTone(f,    'square', 0.15, 0.005, 0.04, 0.1, t);
+    playTone(f*1.5,'sine',   0.1,  0.005, 0.03, 0.1, t + 0.06);
+  },
+  // Streak bonus life
+  bonusLife(){
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    [523, 659, 784, 1047].forEach((f,i)=>{
+      playTone(f, 'sine', 0.18, 0.008, 0.05, 0.2, t + i*0.07);
+    });
+  },
+};
+
 const FPS = 60;
 const MAX_LIVES = 5;
 const FREEZE_DURATION = 5 * FPS;
@@ -665,6 +826,7 @@ function addPineapple(){
 
 // ── Blend ─────────────────────────────────────────────────────────────────────
 function blend(){
+  SFX.blend();
   spawnBlendExplosion(W/2,H/2-60);
   const pts=pineapples.filter(p=>!p.punched).length*25*(isDouble()?2:1);
   pineapples.forEach(p=>{if(!p.punched){p.punched=true;p.punchAnim=0;spawnParticles(p.x,p.y,'#c8e000',6);}});
@@ -740,6 +902,7 @@ function update(){
     if(p.y>H+p.r){
       combo=0;streak=0;streakReady=false;updateStreakBar();comboBanner.style.opacity='0';
       roundMissed++;
+      SFX.miss();
       spawnParticles(p.x,H-20,'#cc3333',8); loseLife(); return false;
     }
     return true;
@@ -891,7 +1054,7 @@ function hitTest(clientX,clientY){
   for(let h of hearts){
     if(h.collected) continue;
     const dx=cx-h.x,dy=cy-h.y;
-    if(dx*dx+dy*dy<h.r*h.r*3){h.collected=true;h.collectAnim=0;gainLife();spawnHeartParticles(h.x,h.y);return;}
+    if(dx*dx+dy*dy<h.r*h.r*3){h.collected=true;h.collectAnim=0;gainLife();spawnHeartParticles(h.x,h.y);SFX.heartCollect();return;}
   }
 
   // Specials
@@ -903,17 +1066,20 @@ function hitTest(clientX,clientY){
         s.hit=true; s.collectAnim=0;
         spawnParticles(s.x,s.y,'#ff4400',18);
         floatingPts.push({x:s.x,y:s.y-20,label:'-1 \uD83D\uDCA3',color:'#ff4444',life:1.2,vy:-1.8,big:false});
+        SFX.bombExplode();
         loseLife();
       } else if(s.type==='freeze'){
         s.collected=true; s.collectAnim=0;
         freezeTimer=FREEZE_DURATION;
         spawnParticles(s.x,s.y,'#66ccff',16);
         floatingPts.push({x:s.x,y:s.y-20,label:'\u2744\uFE0F FREEZE!',color:'#88ddff',life:1.4,vy:-1.6,big:false});
+        SFX.freeze();
       } else if(s.type==='star'){
         s.collected=true; s.collectAnim=0;
         doubleTimer=DOUBLE_DURATION;
         spawnParticles(s.x,s.y,'#ffdd00',16);
         floatingPts.push({x:s.x,y:s.y-20,label:'\u2B50 2X POINTS!',color:'#ffee44',life:1.4,vy:-1.6,big:false});
+        SFX.doubleStar();
       } else if(s.type==='golden'){
         s.collected=true; s.collectAnim=0;
         const pts=30*(isDouble()?2:1);
@@ -921,6 +1087,7 @@ function hitTest(clientX,clientY){
         addFloatingPts(s.x,s.y-s.r,`+${pts} ✨`,`#ffd700`);
         spawnParticles(s.x,s.y,'#ffd700',16);
         roundPunched++; roundScore+=pts;
+        SFX.goldenPunch();
         checkNewBest();
       }
       return;
@@ -939,6 +1106,7 @@ function hitTest(clientX,clientY){
       const col=f.type==='lemon'?'#f5e820':'#ff9a00';
       addFloatingPts(f.x,f.y-f.r,`+${pts}${isDouble()?'★':''}`,col);
       spawnParticles(f.x,f.y,col,10);
+      SFX.fruitPunch();
       roundScore+=pts; checkNewBest(); return;
     }
   }
@@ -947,7 +1115,7 @@ function hitTest(clientX,clientY){
   for(let b of blenders){
     if(b.punched) continue;
     const dx=cx-b.x,dy=cy-b.y;
-    if(dx*dx+dy*dy<b.r*b.r*4){b.punched=true;b.punchAnim=0;blend();return;}
+    if(dx*dx+dy*dy<b.r*b.r*4){b.punched=true;b.punchAnim=0;SFX.blenderPunch();blend();return;}
   }
 
   // Pineapples
@@ -957,6 +1125,7 @@ function hitTest(clientX,clientY){
     const dx=cx-p.x,dy=cy-p.y;
     if(dx*dx+dy*dy<p.r*p.r*1.6){
       p.punched=true;p.punchAnim=0;
+      SFX.punch();
       combo++;
       if(combo>roundMaxCombo) roundMaxCombo=combo;
       if(combo>runMaxCombo) runMaxCombo=combo;
@@ -967,6 +1136,7 @@ function hitTest(clientX,clientY){
         // Alternate: odd fills = blender, even fills = free life
         if(streakFillCount%2===0){
           gainLife();
+          SFX.bonusLife();
           floatingPts.push({x:W/2,y:H*0.3,label:'\u2764\uFE0F Streak Bonus Life!',color:'#ff6688',life:2,vy:-1.0,big:true});
           streak=0; streakReady=false; updateStreakBar();
         } else {
@@ -981,6 +1151,7 @@ function hitTest(clientX,clientY){
       addFloatingPts(p.x,p.y-p.r,`+${pts}${isDouble()?'★':''}`,combo>=5?'#ff9900':combo>=3?'#ffee44':'#ffffff');
       spawnParticles(p.x,p.y);
       if(combo>=3){
+        SFX.combo(combo);
         comboBanner.textContent=`${combo}x combo! +${pts}`;comboBanner.style.opacity='1';
         clearTimeout(window._ct);window._ct=setTimeout(()=>comboBanner.style.opacity='0',1200);
       }
@@ -996,6 +1167,7 @@ canvas.addEventListener('touchstart',e=>{if(!running)return;e.preventDefault();A
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 function startGame(){
+  ensureAudio();
   pineapples=[];particles=[];blenders=[];shockwaves=[];floatingPts=[];hearts=[];specials=[];bonusFruits=[];
   score=0;lives=MAX_LIVES;combo=0;round=0;frame=0;spawnTimer=0;roundTimer=0;
   streak=0;streakReady=false;gameOver=false;roundBanner=null;roundSummary=null;
