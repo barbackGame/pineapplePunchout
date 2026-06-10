@@ -259,7 +259,7 @@ function updateRoundSummary(){
     if(roundSummary.life>=1){ roundSummary.phase='hold'; }
   } else if(roundSummary.phase==='hold'){
     roundSummary.timer++;
-    if(roundSummary.timer>130){ roundSummary.phase='out'; }
+    if(roundSummary.timer>360){ roundSummary.phase='out'; }
   } else {
     roundSummary.life=Math.max(0,roundSummary.life-0.06);
     if(roundSummary.life<=0) roundSummary=null;
@@ -702,9 +702,9 @@ function advanceRound(){
 function update(){
   if(gameOver) return;
 
-  // While round summary is visible (in or hold), pause all game logic
+  // While round summary is visible (any phase), pause all game logic
   // but keep animating the summary card itself
-  if(roundSummary && roundSummary.phase!=='out'){
+  if(roundSummary){
     updateRoundSummary();
     return;
   }
@@ -779,7 +779,6 @@ function update(){
   floatingPts=floatingPts.filter(fp=>{fp.life-=0.025;fp.y+=fp.vy;return fp.life>0;});
 
   updateRoundBanner();
-  if(roundSummary) updateRoundSummary(); // tick fade-out while game runs
   updateNewBestBanner();
 }
 
