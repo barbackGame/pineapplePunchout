@@ -702,10 +702,14 @@ function advanceRound(){
 function update(){
   if(gameOver) return;
 
-  // While round summary is visible (any phase), pause all game logic
-  // but keep animating the summary card itself
+  // While round summary OR round banner is visible, pause all game logic
+  // but keep animating the overlays themselves
   if(roundSummary){
     updateRoundSummary();
+    return;
+  }
+  if(roundBanner){
+    updateRoundBanner();
     return;
   }
 
@@ -778,7 +782,6 @@ function update(){
   });
   floatingPts=floatingPts.filter(fp=>{fp.life-=0.025;fp.y+=fp.vy;return fp.life>0;});
 
-  updateRoundBanner();
   updateNewBestBanner();
 }
 
