@@ -136,7 +136,7 @@ function noise(vol, duration, cutoff, when){
   const c = ac();
   const t = when ?? c.currentTime;
   const sr = c.sampleRate;
-  const len = Math.floor(sr * duration);
+  const len = Math.floor(sr * Math.min(duration, 1.0));
   const buf = c.createBuffer(1, len, sr);
   const d = buf.getChannelData(0);
   for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -159,36 +159,33 @@ function noise(vol, duration, cutoff, when){
   src.stop(t + duration + 0.05);
 }
 
-// Pre-bake a shared noise buffer so rapid punch sounds don't stutter
-let _noiseBuf = null;
-function getSharedNoiseBuf(){
-  if(_noiseBuf) return _noiseBuf;
-  const c = ac();
-  const len = c.sampleRate; // 1 second
-  _noiseBuf = c.createBuffer(1, len, c.sampleRate);
-  const d = _noiseBuf.getChannelData(0);
-  for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  return _noiseBuf;
-}
-
+// Short noise burst — allocates a small buffer, NO looping, safe for rapid calls
 function noiseFast(vol, duration, cutoff, when){
   const c = ac();
   const t = when ?? c.currentTime;
+  const sr = c.sampleRate;
+  // Cap at 0.15s so the buffer stays tiny and allocation is fast
+  const len = Math.floor(sr * Math.min(duration, 0.15));
+  const buf = c.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+
   const src = c.createBufferSource();
-  src.buffer = getSharedNoiseBuf();
-  src.loop = true;
+  src.buffer = buf;
+  // NO src.loop — a looping source that fails to stop causes the rising drone
 
   const filt = c.createBiquadFilter();
   filt.type = 'bandpass';
   filt.frequency.value = cutoff;
-  filt.Q.value = 2;
+  filt.Q.value = 1.5;
 
   const g = c.createGain();
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
   src.connect(filt); filt.connect(g); g.connect(c.destination);
-  src.start(t); src.stop(t + duration + 0.05);
+  src.start(t);
+  src.stop(t + duration + 0.05);
 }
 
 // ── Named sound effects ───────────────────────────────────────────────────────
@@ -336,7 +333,6 @@ let score=0, lives=MAX_LIVES, combo=0, round=0, frame=0, running=false, spawnTim
 let streak=0, streakMax=10, streakReady=false, gameOver=false;
 let roundTimer=0, roundBanner=null, graceTimer=0;
 let freezeTimer=0, doubleTimer=0;
-let streakFillCount=0; // tracks total streak fills for alternating reward
 let roundMaxCombo=0, runMaxCombo=0;
 let roundPunched=0, roundMissed=0, roundScore=0;
 let roundSummary=null; // shown briefly between rounds
@@ -1171,16 +1167,7 @@ function hitTest(clientX,clientY){
       streak=Math.min(streakMax,streak+1);
       if(streak>=streakMax&&!streakReady){
         streakReady=true;
-        streakFillCount++;
-        // Alternate: odd fills = blender, even fills = free life
-        if(streakFillCount%2===0){
-          gainLife();
-          SFX.bonusLife();
-          floatingPts.push({x:W/2,y:H*0.3,label:'\u2764\uFE0F Streak Bonus Life!',color:'#ff6688',life:2,vy:-1.0,big:true});
-          streak=0; streakReady=false; updateStreakBar();
-        } else {
-          spawnBlender();
-        }
+        spawnBlender();
       }
       updateStreakBar();
       const basePts=combo>=3?combo*10:10;
@@ -1210,7 +1197,7 @@ function startGame(){
   score=0;lives=MAX_LIVES;combo=0;round=0;frame=0;spawnTimer=0;roundTimer=0;
   streak=0;streakReady=false;gameOver=false;roundBanner=null;roundSummary=null;
   newBestShown=false;newBestBanner=null;
-  freezeTimer=0;doubleTimer=0;streakFillCount=0;graceTimer=GRACE_FRAMES;
+  freezeTimer=0;doubleTimer=0;graceTimer=GRACE_FRAMES;
   roundMaxCombo=0;runMaxCombo=0;roundPunched=0;roundMissed=0;roundScore=0;
   scoreDisplay.textContent='0';livesDisplay.textContent=livesStr(MAX_LIVES);comboBanner.style.opacity='0';
   updateStreakBar();updatePowerupBars();
